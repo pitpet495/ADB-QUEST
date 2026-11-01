@@ -19,6 +19,7 @@ h1{font-size:18px;margin:0;font-weight:700}
 #mission span{color:var(--dim)}
 #term{flex:1;min-height:0;overflow-y:auto;background:var(--pn);border:1px solid var(--bd);border-radius:6px;padding:10px 12px}
 #term div{white-space:pre-wrap;word-break:break-word}
+#term div.cake{white-space:pre;overflow-x:auto;font-size:11px;line-height:1.2;margin-top:8px}
 .c{color:var(--ac)}.ok{color:var(--ok)}.er{color:var(--er)}.d{color:var(--dim)}
 #row{display:flex;gap:8px;align-items:center;background:var(--pn);border:1px solid var(--bd);border-radius:6px;padding:0 10px}
 #row:focus-within{border-color:var(--ac)}
@@ -43,17 +44,30 @@ const M=[
 {t:"Read the logs",b:"The screen is locked and nobody remembers the PIN. Dump the log and look for it.",re:/^adb logcat/,h:"adb logcat -d | grep -i pin",ok:"A debug build leaked the PIN. Classic."},
 {t:"Unlock it",b:"Type the PIN you found into the device.",re:/^adb shell input text 7319$/,h:"adb shell input text 7319",ok:"Unlocked."},
 {t:"Save the evidence",b:"Something is in /sdcard/DCIM. Look around, then copy the evidence photo to your computer.",re:/^adb pull \/sdcard\/DCIM\/evidence\.png/,h:"adb shell ls /sdcard/DCIM, then adb pull /sdcard/DCIM/evidence.png",ok:"1 file pulled."},
-{t:"Wipe the slate",b:"Reboot the phone into the bootloader so it can be reflashed clean.",re:/^adb reboot bootloader$/,h:"adb reboot bootloader",ok:"Rebooting. The phone is yours again."}];
+{t:"Wipe the slate",b:"Reboot the phone into the bootloader so it can be reflashed clean.",re:/^adb reboot bootloader$/,h:"adb reboot bootloader",ok:"The phone is in the bootloader."},
+{t:"Check the bootloader",b:"Fastboot talks to the phone now, not adb. Confirm it sees the device.",re:/^fastboot devices$/,h:"fastboot devices",ok:"Fastboot sees the phone."},
+{t:"Unlock it",b:"The bootloader is locked and won’t accept new images. Unlock it (this wipes user data).",re:/^fastboot flashing unlock$/,h:"fastboot flashing unlock",ok:"Bootloader unlocked. Data wiped, miner and all."},
+{t:"Flash a clean boot image",b:"Write boot.img to the boot partition.",re:/^fastboot flash boot boot\.img$/,h:"fastboot flash boot boot.img",ok:"Clean boot image flashed."},
+{t:"Reboot to Android",b:"Boot the freshly flashed phone.",re:/^fastboot reboot$/,h:"fastboot reboot",ok:"The phone is yours again."}];
 const LOG=["11-01 09:12:03.114 I/ActivityManager( 612): Start proc com.coinminer.free","11-01 09:12:04.220 W/CPU( 987): coinminer.free using 94% CPU","11-01 09:13:10.002 D/PinKeeper( 455): debug build, lock pin=7319","11-01 09:13:11.870 E/WifiService( 301): scan failed, retrying","11-01 09:14:00.411 I/Keyguard( 455): device locked"];
-let i,n,gone,hist=[],hp=0;
+let i,n,gone,bl,unl,hist=[],hp=0;
+const CAKE=["          )    )    )    )    )","          |    |    |    |    |","          |    |    |    |    |","     .-----------------------------.","     | H A P P Y   B I R T H D A Y |","     |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|","     |                             |","  .-----------------------------------.","  |* * * * * * * * * * * * * * * * * * *|","  |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|","  |                                   |","  |                                   |"," .-------------------------------------."," |o o o o o o o o o o o o o o o o o o o|"," |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|"," |                                     |"," |                                     |"," |                                     |"," '-------------------------------------'","(_______________________________________)"].join("\n");
 const T=document.getElementById("term"),IN=document.getElementById("in");
 function say(s,c){const d=document.createElement("div");if(c)d.className=c;d.textContent=s;T.appendChild(d);T.scrollTop=T.scrollHeight}
 function hud(){document.getElementById("prog").textContent=i<M.length?"mission "+(i+1)+" of "+M.length+" · "+n+" cmds":"complete · "+n+" cmds";
 const m=document.getElementById("mission");m.innerHTML="";const b=document.createElement("b"),s=document.createElement("span");
 if(i<M.length){b.textContent=M[i].t;s.textContent=M[i].b}else{b.textContent="Phone rescued";s.textContent="Solved in "+n+" commands. Type restart to play again."}
 m.append(b,s)}
-function start(){i=0;n=0;gone=false;T.innerHTML="";say("ADB Quest. Type real adb commands to fix the phone.","d");say("Try help if you’re stuck, hint for a nudge.","d");hud()}
+function start(){i=0;n=0;gone=false;bl=false;unl=false;T.innerHTML="";say("ADB Quest. Type real adb commands to fix the phone.","d");say("Try help if you’re stuck, hint for a nudge.","d");hud()}
 function base(c){
+if(/^fastboot/.test(c)){
+if(!bl)return"< waiting for any device >";
+if(c==="fastboot devices")return"R5CT1234XYZ\tfastboot";
+if(c==="fastboot flashing unlock"){unl=true;return"OKAY [  0.012s]\nuserdata wiped\nfinished. total time: 0.012s"}
+if(c==="fastboot flash boot boot.img")return unl?"Sending 'boot_a' (65536 KB) OKAY [  1.480s]\nWriting 'boot_a' OKAY [  0.310s]\nfinished. total time: 1.790s":"FAILED (remote: 'flashing is locked')";
+if(c==="fastboot reboot"){bl=false;return"Rebooting..."}
+return"fastboot: unknown command"}
+if(bl&&/^adb /.test(c)&&c!=="adb version")return"adb: no devices/emulators found";
 if(c==="adb version")return"Android Debug Bridge version 1.0.41";
 if(c==="adb devices"||c==="adb devices -l")return"List of devices attached\nR5CT1234XYZ\tdevice"+(c.endsWith("-l")?" product:husky model:Pixel_8_Pro":"");
 if(/^adb shell pm list packages/.test(c)){let p=["com.android.chrome","com.android.settings","com.spotify.music"];if(!gone)p.splice(1,0,"com.coinminer.free");if(/-3/.test(c))p=p.filter(x=>!/settings/.test(x));return p.map(x=>"package:"+x).join("\n")}
@@ -67,7 +81,7 @@ if(c==="adb shell dumpsys battery")return"Current Battery Service state:\n  leve
 if(c==="adb shell getprop ro.build.version.release")return"14";
 if(c==="adb shell whoami")return"shell";
 if(/^adb shell screencap/.test(c))return"";
-if(c==="adb reboot bootloader")return"";
+if(c==="adb reboot bootloader"){bl=true;return""}
 if(c==="adb reboot")return"";
 if(c==="adb shell")return"This sandbox runs one-shot commands. Add one, like: adb shell ls /sdcard";
 if(c==="adb")return"Android Debug Bridge. Try: devices, shell, logcat, pull, push, uninstall, reboot";
@@ -76,7 +90,8 @@ function run(raw){
 const c=raw.trim().replace(/\s+/g," ");if(!c)return;say("$ "+c,"c");hist.push(c);hp=hist.length;
 if(c==="clear"){T.innerHTML="";return}
 if(c==="restart"){start();return}
-if(c==="help"){say("devices · shell pm list packages · uninstall <pkg> · logcat -d · shell input text <t> · shell ls <path> · pull <remote> · reboot bootloader\nPipe into grep to filter: adb logcat -d | grep -i pin","d");return}
+if(c==="6-7"){i=6;gone=true;bl=false;unl=false;say("cheat: jumped to mission 7","d");hud();return}
+if(c==="help"){say("devices · shell pm list packages · uninstall <pkg> · logcat -d · shell input text <t> · shell ls <path> · pull <remote> · reboot bootloader\nIn the bootloader: fastboot devices · flashing unlock · flash boot boot.img · reboot\nPipe into grep to filter: adb logcat -d | grep -i pin","d");return}
 if(c==="hint"){say(i<M.length?"Hint: "+M[i].h:"Nothing left to fix.","d");return}
 const parts=c.split("|").map(s=>s.trim());let out=base(parts[0]);
 if(out===null){say(/^adb/.test(c)?"adb: unknown command "+(c.split(" ")[1]||""):c.split(" ")[0]+": command not found","er");return}
@@ -84,7 +99,7 @@ const g=parts[1]&&parts[1].match(/^grep (-i )?(\S+)/);
 if(g){const re=new RegExp(g[2].replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),g[1]?"i":"");out=out.split("\n").filter(l=>re.test(l)).join("\n")}
 if(out)say(out);
 n++;
-if(i<M.length&&M[i].re.test(parts[0])){say("✓ "+M[i].ok,"ok");i++;if(i===M.length)say("All "+M.length+" missions done in "+n+" commands.","ok")}
+if(i<M.length&&M[i].re.test(parts[0])){say("✓ "+M[i].ok,"ok");i++;if(i===M.length){say("All "+M.length+" missions done in "+n+" commands.","ok");say(CAKE,"cake ok")}}
 hud()}
 IN.addEventListener("keydown",e=>{
 if(e.key==="Enter"){run(IN.value);IN.value=""}
